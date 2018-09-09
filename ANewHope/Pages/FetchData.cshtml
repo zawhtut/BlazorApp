@@ -1,0 +1,97 @@
+﻿@page "/fetchdata"
+@inject HttpClient Http
+
+@if (weatherLoaded)
+{
+    <h1>
+        @ziplookup.places[0].city, @ziplookup.places[0].stateabbr<br />
+        @ConvertKtoF(currentcondition.main.temp, 1) &#176;F
+    </h1>
+    <h2>
+        @currentcondition.weather[0].main <img src="@imgurl" style="display:inline" />
+    </h2>
+    <h3>
+        <span style="display:inline;color:red">HI @ConvertKtoF(currentcondition.main.temp_max, 0)  &#176;F</span> /
+        <span style="color:blue">LO @ConvertKtoF(currentcondition.main.temp_min, 0)  &#176;F</span><br />
+    </h3>
+    <br />
+    @if (alerts.features.Length > 0)
+    {
+        <h2>Alerts</h2>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Alert</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var alert in alerts.features)
+                {
+                    <tr>
+                        <td>@alert.properties.effective.ToString("MM/dd/yyyy hh:mmt")</td>
+                        <td>
+                            <span style="font-weight:600">@alert.properties.headline</span><br />
+                            <span>@alert.properties.description</span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+else
+{
+    <h1>Weather Forecast</h1>
+    <div class="input-group col-md-3">
+        <input type="text" class="form-control" placeholder="Zip code" bind="@zip" maxlength="5" />
+        <div class="input-group-append">
+            <button class="btn btn-secondary" type="button" onclick="@GetWeather">Get Weather</button>
+        </div>
+    </div>
+    <br /><span style="color:red">@errorMessage</span>
+}
+
+@functions {
+    String zip = String.Empty;
+    String errorMessage = String.Empty;
+    Models.CurrentConditions currentcondition;
+    Models.Alert alerts;
+    Models.ZipLookup ziplookup;
+    String imgurl = "";
+    bool weatherLoaded = false;
+
+    private async Task GetWeather()
+    {
+        Http.DefaultRequestHeaders.Add("Accept", "application/vnd.noaa.dwml+json;version=1");
+        Http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36");
+
+        // get location info from zip
+        try
+        {
+            errorMessage = "";
+            var zipresultStr = await Http.GetStringAsync($"http://api.zippopotam.us/US/{zip}");
+            zipresultStr = zipresultStr.Replace("place name", "city").Replace("state abbreviation", "stateabbr");
+            ziplookup = JsonUtil.Deserialize<Models.ZipLookup>(zipresultStr);
+        }
+        catch
+        {
+            errorMessage = "Invalid zip code";
+            return;
+        }
+
+        // get current condition by zip
+        currentcondition = await Http.GetJsonAsync<Models.CurrentConditions>($"http://api.openweathermap.org/data/2.5/weather?zip={zip},us&appid=93f0b74104f16e4f15a144056218b830");
+        imgurl = $"http://openweathermap.org/img/w/{currentcondition.weather[0].icon}.png";
+
+        // retrieve nws alerts for state
+        alerts = await Http.GetJsonAsync<Models.Alert>($"https://api.weather.gov/alerts/active/area/{ziplookup.places[0].stateabbr}");
+
+        weatherLoaded = true;
+    }
+
+    private decimal ConvertKtoF(decimal kelvin, int decimals)
+    {
+        return Math.Round(kelvin * 9 / 5 - 459.67M, decimals);
+    }
+}
